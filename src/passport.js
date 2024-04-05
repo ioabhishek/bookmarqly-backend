@@ -1,10 +1,11 @@
 import jwt from "jsonwebtoken"
 import passport from "passport"
 import prisma from "./DB/db.config.js"
-import { PrismaClient } from "@prisma/client"
 import { Strategy as LocalStrategy } from "passport-local"
 import { Strategy as GoogleStrategy } from "passport-google-oauth20"
 import bcrypt from "bcryptjs"
+import ApiError from "./utils/ApiError.js"
+import { UserLoginType } from "./constants.js"
 
 passport.use(
   new GoogleStrategy(
@@ -13,31 +14,35 @@ passport.use(
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
       callbackURL: "/auth/google/callback",
     },
-    async (authAccessToken, authRefreshToken, profile, done) => {
-      try {
-        let user = await prisma.user.findUnique({
-          where: {
-            email: profile?._json?.email,
+    async (authAccessToken, authRefreshToken, profile, next) => {
+      // Check if the user with email already exist
+      let user = await prisma.user.findUnique({
+        where: {
+          email: profile?._json?.email,
+        },
+      })
+
+      // If user already exists then return user
+      if (user) {
+        next(null, user)
+      } else {
+        // If user doesn't exist then create new user & save it in the database
+        let createdUser = await prisma.user.create({
+          data: {
+            name: profile._json?.name,
+            username: profile._json.email?.split("@")[0],
+            email: profile._json.email,
+            isEmailVerified: true,
+            picture: profile._json?.picture,
+            loginType: UserLoginType.GOOGLE,
           },
         })
 
-        if (!user) {
-          const userData = {
-            name: profile._json?.name || "",
-            username: profile._json?.sub || "",
-            email: profile._json?.email || "",
-            picture: profile._json?.picture || "",
-            refreshToken: "",
-          }
-
-          user = await prisma.user.create({
-            data: userData,
-          })
+        if (createdUser) {
+          next(null, createdUser)
+        } else {
+          next(ApiError(500, "Error while registering the user"), null)
         }
-
-        done(null, { user })
-      } catch (error) {
-        done(error)
       }
     }
   )

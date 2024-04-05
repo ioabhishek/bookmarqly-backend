@@ -8,11 +8,13 @@ datasource db {
 }
 
 model User {
-  id           String  @id @default(cuid())
-  name         String
-  username     String? @unique @default(cuid())
-  email        String  @unique
-  password     String?
-  picture      String?
-  refreshToken String?
+  id              String  @id @default(cuid())
+  name            String
+  username        String? @unique
+  email           String  @unique
+  password        String?
+  isEmailVerified Boolean
+  picture         String?
+  loginType       String?
+  refreshToken    String?
 }

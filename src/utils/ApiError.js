@@ -1,4 +1,4 @@
-const createError = (status, message) => {
+const ApiError = (status, message) => {
   const error = new Error()
   error.status = status
   error.message = message
@@ -6,4 +6,4 @@ const createError = (status, message) => {
   return error
 }
 
-export default createError
+export default ApiError
