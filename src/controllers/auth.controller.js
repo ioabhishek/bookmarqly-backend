@@ -2,6 +2,7 @@ import passport from "passport"
 import prisma from "../DB/db.config.js"
 import ApiError from "../utils/ApiError.js"
 import jwt from "jsonwebtoken"
+import bcrypt from "bcryptjs"
 import { ApiResponse } from "../utils/ApiResponse.js"
 
 const generateAccessTokenAndRefreshToken = async (id) => {
@@ -179,4 +180,140 @@ export const verifyJwt = async (req, res, next) => {
   } catch (error) {
     throw ApiError(401, error?.message || "Invalid access token")
   }
+}
+
+export const refreshAccessToken = async (req, res, next) => {
+  const incomingRefreshToken = req.cookies.refreshToken || req.body.refreshToken
+
+  if (!incomingRefreshToken) {
+    throw ApiError(401, "Unauthorized request")
+    // res.status(401).json({ message: "Unauthorized request" })
+  }
+
+  try {
+    const decodedToken = jwt.verify(
+      incomingRefreshToken,
+      process.env.REFRESH_TOKEN_SECRET
+    )
+
+    const user = await prisma.user.findUnique({
+      where: {
+        id: decodedToken.id,
+      },
+    })
+
+    if (!user) {
+      throw ApiError(401, "Invalid refresh token")
+    }
+
+    // check if incoming refresh token is same as the refresh token attached in the user document
+    // This shows that the refresh token is used or not
+    // Once it is used, we are replacing it with new refresh token below
+
+    if (incomingRefreshToken !== user?.refreshToken) {
+      return next(ApiError(401, "Refresh token is expired or used"))
+    }
+
+    const options = {
+      httpOnly: true,
+      secure: process.env.NODE_ENV !== "production",
+    }
+
+    const { accessToken, refreshToken: newRefreshToken } =
+      await generateAccessTokenAndRefreshToken(user?.id)
+
+    return res
+      .status(200)
+      .cookie("accessToken", accessToken, options)
+      .cookie("refreshToken", newRefreshToken, options)
+      .json(
+        new ApiResponse(
+          200,
+          { accessToken, refreshToken: newRefreshToken },
+          "Access token refreshed"
+        )
+      )
+  } catch (error) {
+    throw ApiError(401, error?.message || "Invalid refresh token")
+  }
+}
+
+export const emailPasswordLogin = (req, res, next) => {
+  passport.authenticate("local", { session: false })(
+    req,
+    res,
+    async (err, user) => {
+      try {
+        if (err) {
+          return next(err)
+        }
+
+        if (!user) {
+          return res.json(
+            new ApiResponse(401, {}, "Incorrect email or password")
+          )
+        }
+
+        const { accessToken, refreshToken } =
+          await generateAccessTokenAndRefreshToken(user.id)
+
+        const options = {
+          httpOnly: true,
+          secure: false,
+        }
+
+        return res
+          .status(301)
+          .cookie("accessToken", accessToken, options)
+          .cookie("refreshToken", refreshToken, options)
+          .redirect("http://localhost:3000/ioabhishek")
+      } catch (error) {
+        return next(error)
+      }
+    }
+  )
+}
+
+export const emailPasswordRegister = async (req, res, next) => {
+  const body = req.body
+
+  const existedUser = await prisma.user.findUnique({
+    where: {
+      email: body.email,
+    },
+  })
+
+  if (existedUser) {
+    return next(ApiError(409, "User with email or username already exists"))
+  }
+
+  const salt = bcrypt.genSaltSync(10)
+  body.password = bcrypt.hashSync(body.password, salt)
+
+  const createdUser = await prisma.user.create({
+    data: {
+      name: body.name,
+      email: body.email,
+      username: body.username,
+      password: body.password,
+      isEmailVerified: false,
+      loginType: "EMAIL_PASSWORD",
+    },
+  })
+
+  if (!createdUser) {
+    return next(
+      ApiError(500, "Something went wrong while registering the user")
+    )
+  }
+
+  return res
+    .status(201)
+    .json(
+      new ApiResponse(
+        200,
+        { user: createdUser },
+        "Users registered successfully."
+      )
+    )
 }
