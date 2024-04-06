@@ -2,6 +2,7 @@ import passport from "passport"
 import prisma from "../DB/db.config.js"
 import ApiError from "../utils/ApiError.js"
 import jwt from "jsonwebtoken"
+import { ApiResponse } from "../utils/ApiResponse.js"
 
 const generateAccessTokenAndRefreshToken = async (id) => {
   try {
@@ -82,6 +83,28 @@ const handleSocialLogin = async (req, res) => {
     .redirect("http://localhost:3000/ioabhishek")
 }
 
+export const logoutUser = async (req, res) => {
+  await prisma.user.update({
+    where: {
+      id: req.user.id,
+    },
+    data: {
+      refreshToken: undefined,
+    },
+  })
+
+  const options = {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+  }
+
+  return res
+    .status(200)
+    .clearCookie("accesstoken", options)
+    .clearCookie("refreshtoken", options)
+    .json(new ApiResponse(200, {}, "User logged out"))
+}
+
 export const googleLogin = (req, res, next) => {
   passport.authenticate("google", { scope: ["profile", "email"] })(
     req,
@@ -114,4 +137,46 @@ export const loginFailed = (req, res) => {
     success: false,
     message: "failure",
   })
+}
+
+export const verifyJwt = async (req, res, next) => {
+  // Get token form Cookies or Authorization Header
+  const token =
+    req.cookies.accessToken ||
+    req.header("Authorization")?.replace("Bearer ", "")
+
+  // If no token then return Error
+  if (!token) {
+    throw ApiError(401, "Unauthorized request")
+  }
+
+  try {
+    // Decode the token
+    const decodedToken = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET)
+
+    // Using id from the decoded token find user in Database
+    const user = await prisma.user.findUnique({
+      where: {
+        id: decodedToken.id,
+      },
+      select: {
+        id: true,
+        email: true,
+        username: true,
+        picture: true,
+        isEmailVerified: true,
+        loginType: true,
+      },
+    })
+
+    // Check if user is valid or not & throw error if not
+    if (!user) {
+      throw ApiError(401, "Invalid access token")
+    }
+
+    req.user = user
+    next()
+  } catch (error) {
+    throw ApiError(401, error?.message || "Invalid access token")
+  }
 }
