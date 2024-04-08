@@ -3,7 +3,10 @@ import prisma from "../DB/db.config.js"
 import ApiError from "../utils/ApiError.js"
 import jwt from "jsonwebtoken"
 import bcrypt from "bcryptjs"
+import crypto from "crypto"
 import { ApiResponse } from "../utils/ApiResponse.js"
+import { USER_TEMPORARY_TOKEN_EXPIRY } from "../constants.js"
+import { sendEmail } from "../utils/mail.js"
 
 const generateAccessTokenAndRefreshToken = async (id) => {
   try {
@@ -82,6 +85,22 @@ const handleSocialLogin = async (req, res) => {
     .cookie("accessToken", accessToken, options)
     .cookie("refreshToken", refreshToken, options)
     .redirect("http://localhost:3000/ioabhishek")
+}
+
+const generateTemporaryToken = () => {
+  // This token should be client facing
+  // for example: for email verification unHashedToken should go into the user's mail
+  const unHashedToken = crypto.randomBytes(20).toString("hex")
+
+  // This should stay in the DB to compare at the time of verification
+  const hashedToken = crypto
+    .createHash("sha256")
+    .update(unHashedToken)
+    .digest("hex")
+  // This is the expiry time for the token (20 minutes)
+  const tokenExpiry = Date.now() + USER_TEMPORARY_TOKEN_EXPIRY
+
+  return { unHashedToken, hashedToken, tokenExpiry }
 }
 
 export const logoutUser = async (req, res) => {
@@ -239,39 +258,43 @@ export const refreshAccessToken = async (req, res, next) => {
 }
 
 export const emailPasswordLogin = (req, res, next) => {
-  passport.authenticate("local", { session: false })(
-    req,
-    res,
-    async (err, user) => {
-      try {
-        if (err) {
-          return next(err)
-        }
-
-        if (!user) {
-          return res.json(
-            new ApiResponse(401, {}, "Incorrect email or password")
-          )
-        }
-
-        const { accessToken, refreshToken } =
-          await generateAccessTokenAndRefreshToken(user.id)
-
-        const options = {
-          httpOnly: true,
-          secure: false,
-        }
-
-        return res
-          .status(301)
-          .cookie("accessToken", accessToken, options)
-          .cookie("refreshToken", refreshToken, options)
-          .redirect("http://localhost:3000/ioabhishek")
-      } catch (error) {
-        return next(error)
+  passport.authenticate("local", { session: false }, async (err, user) => {
+    try {
+      if (err) {
+        return next(err)
       }
+
+      if (!user) {
+        return res.json(new ApiResponse(401, {}, "Incorrect email or password"))
+      }
+
+      const { accessToken, refreshToken } =
+        await generateAccessTokenAndRefreshToken(user.id)
+
+      const options = {
+        httpOnly: true,
+        secure: false,
+      }
+
+      return res
+        .status(301)
+        .cookie("accessToken", accessToken, options)
+        .cookie("refreshToken", refreshToken, options)
+        .json(
+          new ApiResponse(
+            200,
+            {
+              ...user,
+              password: undefined,
+              refreshToken: undefined,
+            },
+            "Login success"
+          )
+        )
+    } catch (error) {
+      return next(error)
     }
-  )
+  })(req, res, next)
 }
 
 export const emailPasswordRegister = async (req, res, next) => {
@@ -316,4 +339,90 @@ export const emailPasswordRegister = async (req, res, next) => {
         "Users registered successfully."
       )
     )
+}
+
+export const resetForgottenPassword = async (req, res, next) => {
+  const { oldPassword, newPassword } = req.body
+
+  const user = await prisma.user.findUnique({
+    where: {
+      id: req.user?.id,
+    },
+  })
+
+  if (!user) {
+    return next(ApiError(401, "Please create an account to change password"))
+  }
+
+  const isPasswordValid = bcrypt.compareSync(oldPassword, user.password)
+
+  if (!isPasswordValid) {
+    return next(ApiError(400, "Invalid old password"))
+  }
+
+  const salt = bcrypt.genSaltSync(10)
+  const newHashedPassword = bcrypt.hashSync(newPassword, salt)
+
+  await prisma.user.update({
+    where: {
+      id: user.id,
+    },
+    data: {
+      password: newHashedPassword,
+    },
+  })
+
+  // check token expiration before updating the password
+  // recieved request for password reset
+  // check in db weather user exists and if yes then check login type. If not Email_Password then throw an error
+  // If user and right login method encryt and update password in the db, and return succes message.
+}
+
+export const registerUser = async (req, res, next) => {
+  const { name, email, username, password } = req.body
+
+  const existedUser = await prisma.user.findFirst({
+    where: {
+      // email: email,
+      OR: [{ email: email }, { username: username }],
+    },
+  })
+
+  if (existedUser) {
+    return next(ApiError(409, "User with email or username already exists"))
+  }
+
+  const salt = bcrypt.genSaltSync(10)
+  req.body.password = bcrypt.hashSync(password, salt)
+
+  /**
+   * unHashedToken: unHashed token is something we will send to the user's mail
+   * hashedToken: we will keep record of hashedToken to validate the unHashedToken in verify email controller
+   * tokenExpiry: Expiry to be checked before validating the incoming token
+   */
+  const { unHashedToken, hashedToken, tokenExpiry } = generateTemporaryToken()
+
+  const createdUser = await prisma.user.create({
+    data: {
+      name: name,
+      email: email,
+      username: username,
+      password: password,
+      isEmailVerified: false,
+      loginType: "EMAIL_PASSWORD",
+      emailVerificationToken: hashedToken,
+      emailVerificationExpiry: tokenExpiry,
+    },
+  })
+
+  await sendEmail({
+    email: user?.email,
+    subject: "Please verify your email",
+    mailgenContent: emailVerificationMailgenContent(
+      createdUser.username,
+      `${req.protocol}://${req.get(
+        "host"
+      )}/api/v1/users/verify-email/${unHashedToken}`
+    ),
+  })
 }
