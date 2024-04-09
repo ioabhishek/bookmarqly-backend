@@ -1,9 +1,6 @@
 import Mailgen from "mailgen"
 import nodemailer from "nodemailer"
 
-/**
- * @param {{email: string; subject: string; mailgenContent: Mailgen.Content; }} options
- */
 export const sendEmail = async (options) => {
   // Initialize mailgen instance with default theme and brand configuration
   const mailGenerator = new Mailgen({
@@ -50,12 +47,6 @@ export const sendEmail = async (options) => {
   }
 }
 
-/**
- * @param {string} username
- * @param {string} verificationUrl
- * @returns {Mailgen.Content}
- * @description It designs the email verification mail
- */
 export const emailVerificationMailgenContent = (username, verificationUrl) => {
   return {
     body: {
@@ -65,7 +56,7 @@ export const emailVerificationMailgenContent = (username, verificationUrl) => {
         instructions:
           "To verify your email please click on the following button:",
         button: {
-          color: "#22BC66", // Optional action button color
+          color: "#22BC66",
           text: "Verify your email",
           link: verificationUrl,
         },

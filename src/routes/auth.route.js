@@ -8,6 +8,7 @@ import {
   logoutUser,
   refreshAccessToken,
   registerUser,
+  verifyEmail,
   verifyJwt,
 } from "../controllers/auth.controller.js"
 
@@ -21,6 +22,7 @@ router.post("/login", emailPasswordLogin)
 router.post("/logout", verifyJwt, logoutUser)
 router.post("/refresh-token", refreshAccessToken)
 router.post("/register", registerUser)
+router.get("/users/verify-email/:verificationToken", verifyEmail)
 
 // router.post("/fogot-password", resetForgottenPassword)
 // router.post("/change-password", changeCurrentPassword)
