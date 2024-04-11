@@ -19,4 +19,6 @@ model User {
   refreshToken            String?
   emailVerificationToken  String?
   emailVerificationExpiry String?
+  forgotPasswordToken     String?
+  forgotPasswordExpiry    String?
 }

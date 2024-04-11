@@ -5,7 +5,7 @@ import jwt from "jsonwebtoken"
 import bcrypt from "bcryptjs"
 import crypto from "crypto"
 import { ApiResponse } from "../utils/ApiResponse.js"
-import { USER_TEMPORARY_TOKEN_EXPIRY } from "../constants.js"
+import { USER_TEMPORARY_TOKEN_EXPIRY, UserLoginType } from "../constants.js"
 import { emailVerificationMailgenContent, sendEmail } from "../utils/mail.js"
 
 const generateAccessTokenAndRefreshToken = async (id) => {
@@ -101,28 +101,6 @@ const generateTemporaryToken = () => {
   const tokenExpiry = `${Date.now() + USER_TEMPORARY_TOKEN_EXPIRY}`
 
   return { unHashedToken, hashedToken, tokenExpiry }
-}
-
-export const logoutUser = async (req, res) => {
-  await prisma.user.update({
-    where: {
-      id: req.user.id,
-    },
-    data: {
-      refreshToken: undefined,
-    },
-  })
-
-  const options = {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-  }
-
-  return res
-    .status(200)
-    .clearCookie("accesstoken", options)
-    .clearCookie("refreshtoken", options)
-    .json(new ApiResponse(200, {}, "User logged out"))
 }
 
 export const googleLogin = (req, res, next) => {
@@ -257,127 +235,6 @@ export const refreshAccessToken = async (req, res, next) => {
   }
 }
 
-export const emailPasswordLogin = (req, res, next) => {
-  passport.authenticate("local", { session: false }, async (err, user) => {
-    try {
-      if (err) {
-        return next(err)
-      }
-
-      if (!user) {
-        return res.json(new ApiResponse(401, {}, "Incorrect email or password"))
-      }
-
-      const { accessToken, refreshToken } =
-        await generateAccessTokenAndRefreshToken(user.id)
-
-      const options = {
-        httpOnly: true,
-        secure: false,
-      }
-
-      return res
-        .status(301)
-        .cookie("accessToken", accessToken, options)
-        .cookie("refreshToken", refreshToken, options)
-        .json(
-          new ApiResponse(
-            200,
-            {
-              ...user,
-              password: undefined,
-              refreshToken: undefined,
-            },
-            "Login success"
-          )
-        )
-    } catch (error) {
-      return next(error)
-    }
-  })(req, res, next)
-}
-
-export const emailPasswordRegister = async (req, res, next) => {
-  const body = req.body
-
-  const existedUser = await prisma.user.findUnique({
-    where: {
-      email: body.email,
-    },
-  })
-
-  if (existedUser) {
-    return next(ApiError(409, "User with email or username already exists"))
-  }
-
-  const salt = bcrypt.genSaltSync(10)
-  body.password = bcrypt.hashSync(body.password, salt)
-
-  const createdUser = await prisma.user.create({
-    data: {
-      name: body.name,
-      email: body.email,
-      username: body.username,
-      password: body.password,
-      isEmailVerified: false,
-      loginType: "EMAIL_PASSWORD",
-    },
-  })
-
-  if (!createdUser) {
-    return next(
-      ApiError(500, "Something went wrong while registering the user")
-    )
-  }
-
-  return res
-    .status(201)
-    .json(
-      new ApiResponse(
-        200,
-        { user: createdUser },
-        "Users registered successfully."
-      )
-    )
-}
-
-export const resetForgottenPassword = async (req, res, next) => {
-  const { oldPassword, newPassword } = req.body
-
-  const user = await prisma.user.findUnique({
-    where: {
-      id: req.user?.id,
-    },
-  })
-
-  if (!user) {
-    return next(ApiError(401, "Please create an account to change password"))
-  }
-
-  const isPasswordValid = bcrypt.compareSync(oldPassword, user.password)
-
-  if (!isPasswordValid) {
-    return next(ApiError(400, "Invalid old password"))
-  }
-
-  const salt = bcrypt.genSaltSync(10)
-  const newHashedPassword = bcrypt.hashSync(newPassword, salt)
-
-  await prisma.user.update({
-    where: {
-      id: user.id,
-    },
-    data: {
-      password: newHashedPassword,
-    },
-  })
-
-  // check token expiration before updating the password
-  // recieved request for password reset
-  // check in db weather user exists and if yes then check login type. If not Email_Password then throw an error
-  // If user and right login method encryt and update password in the db, and return succes message.
-}
-
 export const registerUser = async (req, res, next) => {
   const { name, email, username, password } = req.body
 
@@ -392,7 +249,7 @@ export const registerUser = async (req, res, next) => {
   }
 
   const salt = bcrypt.genSaltSync(10)
-  req.body.password = bcrypt.hashSync(password, salt)
+  const hashedPass = bcrypt.hashSync(password, salt)
 
   /**
    * unHashedToken: unHashed token is something we will send to the user's mail
@@ -401,14 +258,14 @@ export const registerUser = async (req, res, next) => {
    */
   const { unHashedToken, hashedToken, tokenExpiry } = generateTemporaryToken()
 
-  console.log(unHashedToken, hashedToken, tokenExpiry)
+  // console.log(unHashedToken, hashedToken, tokenExpiry)
 
   const user = await prisma.user.create({
     data: {
       name: name,
       email: email,
       username: username,
-      password: password,
+      password: hashedPass,
       isEmailVerified: false,
       loginType: "EMAIL_PASSWORD",
       emailVerificationToken: hashedToken,
@@ -452,7 +309,6 @@ export const registerUser = async (req, res, next) => {
 
 export const verifyEmail = async (req, res, next) => {
   const { verificationToken } = req.params
-  // console.log("token is", verificationToken)
 
   if (!verificationToken) {
     return next(ApiError(400, "Email verification token is missing"))
@@ -480,9 +336,15 @@ export const verifyEmail = async (req, res, next) => {
     },
   })
 
-  console.log(user?.emailVerificationExpiry > new Date())
+  // console.log(user?.emailVerificationExpiry > new Date().getTime())
 
-  if (!user) {
+  if (
+    !user ||
+    !(
+      user.emailVerificationExpiry &&
+      user.emailVerificationExpiry > new Date().getTime()
+    )
+  ) {
     return next(ApiError(489, "Token is invalid or expired"))
   }
 
@@ -500,4 +362,265 @@ export const verifyEmail = async (req, res, next) => {
   return res
     .status(200)
     .json(new ApiResponse(200, { isEmailVerified: true }, "Email is verified"))
+}
+
+export const resendEmailVerification = async (req, res, next) => {
+  const findUser = await prisma.user.findUnique({
+    where: {
+      id: req.user?.id,
+    },
+  })
+
+  if (!findUser) {
+    return next(ApiError(404, "User does not exists"))
+  }
+
+  if (findUser?.isEmailVerified) {
+    return next(ApiError(409, "Email is already verified!"))
+  }
+
+  const { unHashedToken, hashedToken, tokenExpiry } = generateTemporaryToken()
+
+  const user = await prisma.user.update({
+    where: {
+      id: findUser.id,
+    },
+    data: {
+      emailVerificationToken: hashedToken,
+      emailVerificationExpiry: tokenExpiry,
+    },
+  })
+
+  await sendEmail({
+    email: user?.email,
+    subject: "Please verify your email",
+    mailgenContent: emailVerificationMailgenContent(
+      user?.username,
+      `${req.protocol}://${req.get(
+        "host"
+      )}/auth/users/verify-email/${unHashedToken}`
+    ),
+  })
+
+  return res
+    .status(201)
+    .json(new ApiResponse(200, [], "Mail has been sent to your mail ID"))
+}
+
+export const loginUser = async (req, res, next) => {
+  const { email, password } = req.body
+
+  if (!email || !password) {
+    return next(ApiError(400, "Username or email is required"))
+  }
+
+  const findUser = await prisma.user.findUnique({
+    where: {
+      email: email,
+    },
+  })
+
+  if (!findUser) {
+    return next(ApiError(404, "User does not exist"))
+  }
+
+  if (findUser.loginType !== UserLoginType.EMAIL_PASSWORD) {
+    return next(
+      ApiError(
+        400,
+        "You have previously registered using " +
+          findUser.loginType?.toLowerCase() +
+          ". Please use the " +
+          findUser.loginType?.toLowerCase() +
+          " login option to access your account."
+      )
+    )
+  }
+
+  const isPasswordValid = bcrypt.compareSync(password, findUser.password)
+
+  if (!isPasswordValid) {
+    return next(ApiError(401, "Invalid user credentials"))
+  }
+
+  const { accessToken, refreshToken } =
+    await generateAccessTokenAndRefreshToken(findUser.id)
+
+  const loggedInUser = await prisma.user.findUnique({
+    where: {
+      id: findUser.id,
+    },
+    select: {
+      name: true,
+      email: true,
+      username: true,
+      isEmailVerified: true,
+      picture: true,
+      loginType: "EMAIL_PASSWORD",
+    },
+  })
+
+  const options = {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+  }
+
+  return res
+    .status(200)
+    .cookie("accessToken", accessToken, options)
+    .cookie("refreshToken", refreshToken, options)
+    .json(
+      new ApiResponse(
+        200,
+        { user: loggedInUser, accessToken, refreshToken },
+        "User logged in successfully"
+      )
+    )
+}
+
+export const logoutUser = async (req, res, next) => {
+  await prisma.user.update({
+    where: {
+      id: req.user?.id,
+    },
+    data: {
+      refreshToken: null,
+    },
+  })
+
+  const options = {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+  }
+
+  return res
+    .status(200)
+    .clearCookie("accesstoken", options)
+    .clearCookie("refreshtoken", options)
+    .json(new ApiResponse(200, {}, "User logged out"))
+}
+
+export const forgotPasswordRequest = async (req, res, next) => {
+  const findUser = await prisma.user.findUnique({
+    where: {
+      id: req.user?.id,
+    },
+  })
+
+  if (!findUser) {
+    return next(ApiError(404, "User does not exist"))
+  }
+
+  const { unHashedToken, hashedToken, tokenExpiry } = generateTemporaryToken()
+
+  const user = await prisma.user.update({
+    where: {
+      id: findUser.id,
+    },
+    data: {
+      forgotPasswordToken: hashedToken,
+      forgotPasswordExpiry: tokenExpiry,
+    },
+  })
+
+  await sendEmail({
+    email: user?.email,
+    subject: "Password reset request",
+    mailgenContent: emailVerificationMailgenContent(
+      user?.username,
+      `${req.protocol}://${req.get(
+        "host"
+      )}/auth/users/reset-password/${unHashedToken}`
+    ),
+  })
+
+  return res
+    .status(200)
+    .json(
+      new ApiResponse(
+        200,
+        {},
+        "Password reset mail has been sent on your mail id"
+      )
+    )
+}
+
+export const resetForgottenPassword = async (req, res, next) => {
+  const { resetToken } = req.params
+  const { newPassword } = req.body
+
+  let hashedToken = crypto.createHash("sha256").update(resetToken).digest("hex")
+
+  const user = await prisma.user.findFirst({
+    where: {
+      forgotPasswordToken: hashedToken,
+      // forgotPasswordExpiry: {
+      //   gt: new Date().getTime().toString(),
+      // },
+    },
+  })
+
+  if (
+    !user ||
+    !(
+      user.forgotPasswordExpiry &&
+      user.forgotPasswordExpiry > new Date().getTime()
+    )
+  ) {
+    return next(ApiError(489, "Token is invalid or expired"))
+  }
+
+  // if (!user) {
+  //   return next(ApiError(489, "Token is invalid or expired"))
+  // }
+
+  const salt = bcrypt.genSaltSync(10)
+  const hashedPass = bcrypt.hashSync(newPassword, salt)
+
+  await prisma.user.update({
+    where: {
+      id: user.id,
+    },
+    data: {
+      forgotPasswordToken: null,
+      forgotPasswordExpiry: null,
+      password: hashedPass,
+    },
+  })
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, {}, "Password reset successfully"))
+}
+
+export const changeCurrentPassword = async (req, res, next) => {
+  const { oldPassword, newPassword } = req.body
+
+  const findUser = await prisma.user.findUnique({
+    where: {
+      id: req.user?.id,
+    },
+  })
+
+  const isPasswordValid = bcrypt.compareSync(oldPassword, findUser.password)
+
+  if (!isPasswordValid) {
+    return next(ApiError(401, "Invalid old password"))
+  }
+
+  const salt = bcrypt.genSaltSync(10)
+  const hashedPass = bcrypt.hashSync(newPassword, salt)
+
+  await prisma.user.update({
+    where: {
+      id: findUser.id,
+    },
+    data: {
+      password: hashedPass,
+    },
+  })
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, {}, "Password changed successfully"))
 }
