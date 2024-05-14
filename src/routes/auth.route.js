@@ -2,6 +2,7 @@ import { Router } from "express"
 import {
   changeCurrentPassword,
   forgotPasswordRequest,
+  getUser,
   googleLogin,
   googleLoginCallback,
   loginFailed,
@@ -12,6 +13,7 @@ import {
   registerUser,
   resendEmailVerification,
   resetForgottenPassword,
+  userDetails,
   verifyEmail,
   verifyJwt,
 } from "../controllers/auth.controller.js"
@@ -26,10 +28,15 @@ router.post("/refresh-token", refreshAccessToken)
 router.post("/register", registerUser)
 router.post("/login", loginUser)
 router.post("/logout", verifyJwt, logoutUser)
-router.get("/users/verify-email/:verificationToken", verifyEmail)
+router.post("/verify-email", verifyEmail)
 router.post("/resend-email-verification", resendEmailVerification)
 router.post("/forgot-password", forgotPasswordRequest)
-router.post("/users/reset-password/:resetToken", resetForgottenPassword)
+router.post("/reset-password", resetForgottenPassword)
 router.post("/change-password", verifyJwt, changeCurrentPassword)
+router.get("/current-user", verifyJwt, userDetails)
+router.get("/get-user/:username", getUser)
 
 export default router
+
+// router.get("/users/verify-email/:verificationToken", verifyEmail)
+// router.post("/users/reset-password/:resetToken", resetForgottenPassword)

@@ -7,6 +7,7 @@ import crypto from "crypto"
 import { ApiResponse } from "../utils/ApiResponse.js"
 import { USER_TEMPORARY_TOKEN_EXPIRY, UserLoginType } from "../constants.js"
 import { emailVerificationMailgenContent, sendEmail } from "../utils/mail.js"
+import { ErrorResponse } from "../utils/ErrorResponse.js"
 
 const generateAccessTokenAndRefreshToken = async (id) => {
   try {
@@ -29,7 +30,7 @@ const generateAccessTokenAndRefreshToken = async (id) => {
       },
       process.env.ACCESS_TOKEN_SECRET,
       {
-        expiresIn: "24h",
+        expiresIn: "1w",
       }
     )
 
@@ -39,7 +40,7 @@ const generateAccessTokenAndRefreshToken = async (id) => {
         id: user.id,
       },
       process.env.REFRESH_TOKEN_SECRET,
-      { expiresIn: "1w" }
+      { expiresIn: "1m" }
     )
 
     // Once Refresh Token is available update user refresh token
@@ -77,14 +78,16 @@ const handleSocialLogin = async (req, res) => {
 
   const options = {
     httpOnly: true,
-    secure: false,
+    secure: true,
   }
 
   return res
     .status(301)
     .cookie("accessToken", accessToken, options)
     .cookie("refreshToken", refreshToken, options)
-    .redirect("http://localhost:3000/ioabhishek")
+    .redirect(
+      `http://localhost:3000/login?user=${user?.username}&accessToken=${accessToken}&refreshToken=${refreshToken}`
+    )
 }
 
 const generateTemporaryToken = () => {
@@ -138,14 +141,16 @@ export const loginFailed = (req, res) => {
 }
 
 export const verifyJwt = async (req, res, next) => {
-  // Get token form Cookies or Authorization Header
   const token =
     req.cookies.accessToken ||
     req.header("Authorization")?.replace("Bearer ", "")
 
+  // const token = req.header("Authorization")?.replace("Bearer ", "")
+
   // If no token then return Error
   if (!token) {
-    throw ApiError(401, "Unauthorized request")
+    // throw ApiError(401, "Unauthorized request")
+    return res.status(401).json(new ErrorResponse(401, "Unauthorized request"))
   }
 
   try {
@@ -159,6 +164,7 @@ export const verifyJwt = async (req, res, next) => {
       },
       select: {
         id: true,
+        name: true,
         email: true,
         username: true,
         picture: true,
@@ -175,7 +181,10 @@ export const verifyJwt = async (req, res, next) => {
     req.user = user
     next()
   } catch (error) {
-    throw ApiError(401, error?.message || "Invalid access token")
+    // throw ApiError(401, error?.message || "Invalid access token")
+    return res
+      .status(401)
+      .json(new ApiResponse(401, {}, error?.message || "Invalid access token"))
   }
 }
 
@@ -183,8 +192,7 @@ export const refreshAccessToken = async (req, res, next) => {
   const incomingRefreshToken = req.cookies.refreshToken || req.body.refreshToken
 
   if (!incomingRefreshToken) {
-    throw ApiError(401, "Unauthorized request")
-    // res.status(401).json({ message: "Unauthorized request" })
+    return res.status(401).json(new ErrorResponse(401, "Unauthorized request"))
   }
 
   try {
@@ -213,7 +221,7 @@ export const refreshAccessToken = async (req, res, next) => {
 
     const options = {
       httpOnly: true,
-      secure: process.env.NODE_ENV !== "production",
+      secure: true,
     }
 
     const { accessToken, refreshToken: newRefreshToken } =
@@ -245,7 +253,12 @@ export const registerUser = async (req, res, next) => {
   })
 
   if (existedUser) {
-    return next(ApiError(409, "User with email or username already exists"))
+    // return next(ApiError(409, "User with email or username already exists"))
+    return res
+      .status(409)
+      .json(
+        new ApiResponse(409, {}, "User with email or username already exists")
+      )
   }
 
   const salt = bcrypt.genSaltSync(10)
@@ -278,9 +291,10 @@ export const registerUser = async (req, res, next) => {
     subject: "Please verify your email",
     mailgenContent: emailVerificationMailgenContent(
       user?.username,
-      `${req.protocol}://${req.get(
-        "host"
-      )}/auth/users/verify-email/${unHashedToken}`
+      // `${req.protocol}://${req.get(
+      //   "host"
+      // )}/auth/users/verify-email/${unHashedToken}`
+      `http://localhost:3000/verify-email/?token=${unHashedToken}`
     ),
   })
 
@@ -308,7 +322,8 @@ export const registerUser = async (req, res, next) => {
 }
 
 export const verifyEmail = async (req, res, next) => {
-  const { verificationToken } = req.params
+  // const { verificationToken } = req.params
+  const { verificationToken } = req.body
 
   if (!verificationToken) {
     return next(ApiError(400, "Email verification token is missing"))
@@ -345,10 +360,12 @@ export const verifyEmail = async (req, res, next) => {
       user.emailVerificationExpiry > new Date().getTime()
     )
   ) {
-    return next(ApiError(489, "Token is invalid or expired"))
+    return res
+      .status(489)
+      .json(new ApiResponse(489, {}, "Token is invalid or expired"))
   }
 
-  const updateUser = await prisma.user.update({
+  await prisma.user.update({
     where: {
       id: user.id,
     },
@@ -362,21 +379,29 @@ export const verifyEmail = async (req, res, next) => {
   return res
     .status(200)
     .json(new ApiResponse(200, { isEmailVerified: true }, "Email is verified"))
+  // .redirect(`http://localhost:3000/login`)
 }
 
 export const resendEmailVerification = async (req, res, next) => {
+  const { email } = req.body
+
   const findUser = await prisma.user.findUnique({
     where: {
-      id: req.user?.id,
+      // id: req.user?.id,
+      email: email,
     },
   })
 
   if (!findUser) {
-    return next(ApiError(404, "User does not exists"))
+    // return next(ApiError(404, "User does not exists"))
+    return res.status(404).json(new ErrorResponse(404, "User does not exists"))
   }
 
   if (findUser?.isEmailVerified) {
-    return next(ApiError(409, "Email is already verified!"))
+    // return next(ApiError(409, "Email is already verified!"))
+    return res
+      .status(409)
+      .json(new ErrorResponse(409, "Email is already verified!"))
   }
 
   const { unHashedToken, hashedToken, tokenExpiry } = generateTemporaryToken()
@@ -396,15 +421,16 @@ export const resendEmailVerification = async (req, res, next) => {
     subject: "Please verify your email",
     mailgenContent: emailVerificationMailgenContent(
       user?.username,
-      `${req.protocol}://${req.get(
-        "host"
-      )}/auth/users/verify-email/${unHashedToken}`
+      // `${req.protocol}://${req.get(
+      //   "host"
+      // )}/auth/users/verify-email/${unHashedToken}`
+      `http://localhost:3000/verify-email/?token=${unHashedToken}`
     ),
   })
 
   return res
     .status(201)
-    .json(new ApiResponse(200, [], "Mail has been sent to your mail ID"))
+    .json(new ApiResponse(201, {}, "Mail has been sent to your mail ID"))
 }
 
 export const loginUser = async (req, res, next) => {
@@ -421,7 +447,7 @@ export const loginUser = async (req, res, next) => {
   })
 
   if (!findUser) {
-    return next(ApiError(404, "User does not exist"))
+    return res.status(404).json(new ErrorResponse(404, "User does not exist"))
   }
 
   if (findUser.loginType !== UserLoginType.EMAIL_PASSWORD) {
@@ -440,7 +466,9 @@ export const loginUser = async (req, res, next) => {
   const isPasswordValid = bcrypt.compareSync(password, findUser.password)
 
   if (!isPasswordValid) {
-    return next(ApiError(401, "Invalid user credentials"))
+    return res
+      .status(403)
+      .json(new ApiResponse(403, {}, "Invalid user credentials"))
   }
 
   const { accessToken, refreshToken } =
@@ -462,7 +490,8 @@ export const loginUser = async (req, res, next) => {
 
   const options = {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    // secure: process.env.NODE_ENV === "production",
+    secure: true,
   }
 
   return res
@@ -488,27 +517,36 @@ export const logoutUser = async (req, res, next) => {
     },
   })
 
-  const options = {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-  }
+  // const options = {
+  //   httpOnly: true,
+  //   secure: process.env.NODE_ENV === "production",
+  // }
 
   return res
     .status(200)
-    .clearCookie("accesstoken", options)
-    .clearCookie("refreshtoken", options)
+    .clearCookie("accessToken")
+    .clearCookie("refreshToken")
     .json(new ApiResponse(200, {}, "User logged out"))
 }
 
 export const forgotPasswordRequest = async (req, res, next) => {
+  const { email } = req.body
+
   const findUser = await prisma.user.findUnique({
     where: {
-      id: req.user?.id,
+      email: email,
     },
   })
 
   if (!findUser) {
-    return next(ApiError(404, "User does not exist"))
+    // return next(ApiError(404, "User does not exist"))
+    return res.status(404).json(new ErrorResponse(404, "User does not exists"))
+  }
+
+  if (findUser && findUser.loginType === "Google") {
+    return res
+      .status(409)
+      .json(new ErrorResponse(409, "Email already used with Google"))
   }
 
   const { unHashedToken, hashedToken, tokenExpiry } = generateTemporaryToken()
@@ -528,9 +566,10 @@ export const forgotPasswordRequest = async (req, res, next) => {
     subject: "Password reset request",
     mailgenContent: emailVerificationMailgenContent(
       user?.username,
-      `${req.protocol}://${req.get(
-        "host"
-      )}/auth/users/reset-password/${unHashedToken}`
+      // `${req.protocol}://${req.get(
+      //   "host"
+      // )}/auth/users/reset-password/${unHashedToken}`
+      `http://localhost:3000/reset-password/?token=${unHashedToken}`
     ),
   })
 
@@ -546,8 +585,8 @@ export const forgotPasswordRequest = async (req, res, next) => {
 }
 
 export const resetForgottenPassword = async (req, res, next) => {
-  const { resetToken } = req.params
-  const { newPassword } = req.body
+  // const { resetToken } = req.params
+  const { resetToken, newPassword } = req.body
 
   let hashedToken = crypto.createHash("sha256").update(resetToken).digest("hex")
 
@@ -567,7 +606,9 @@ export const resetForgottenPassword = async (req, res, next) => {
       user.forgotPasswordExpiry > new Date().getTime()
     )
   ) {
-    return next(ApiError(489, "Token is invalid or expired"))
+    return res
+      .status(489)
+      .json(new ErrorResponse(489, "Token is invalid or expired"))
   }
 
   // if (!user) {
@@ -623,4 +664,36 @@ export const changeCurrentPassword = async (req, res, next) => {
   return res
     .status(200)
     .json(new ApiResponse(200, {}, "Password changed successfully"))
+}
+
+export const userDetails = async (req, res, next) => {
+  return res
+    .status(200)
+    .json(new ApiResponse(200, req.user, "Current user fetched successfully"))
+}
+
+export const getUser = async (req, res, next) => {
+  const { username } = req.params
+
+  const findUser = await prisma.user.findUnique({
+    where: {
+      username: username,
+    },
+    select: {
+      name: true,
+      email: true,
+      username: true,
+      isEmailVerified: true,
+      picture: true,
+      loginType: true,
+    },
+  })
+
+  if (!findUser) {
+    return res.status(404).json(new ErrorResponse(404, "User does not exist"))
+  }
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, { user: findUser }, "User fetched successfully"))
 }
