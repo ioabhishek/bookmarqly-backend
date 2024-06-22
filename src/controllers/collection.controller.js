@@ -42,15 +42,22 @@ export const updateCollection = async (req, res) => {
   const isCollection = await prisma.collection.findUnique({
     where: {
       id: id,
-      userId: req.user.id,
+      // userId: req.user.id,
     },
   })
 
   if (!isCollection) {
+    return res.status(404).json(new ErrorResponse(404, "No Collection found"))
+  }
+
+  if (isCollection?.userId !== req.user.id) {
     return res
-      .status(404)
+      .status(403)
       .json(
-        new ErrorResponse(404, "Either collection or user is not available")
+        new ErrorResponse(
+          403,
+          "You are not authorized to update this collection"
+        )
       )
   }
 
@@ -83,19 +90,25 @@ export const deleteCollection = async (req, res) => {
   const isCollection = await prisma.collection.findUnique({
     where: {
       id: id,
-      userId: req.user.id,
     },
   })
 
   if (!isCollection) {
+    return res.status(404).json(new ErrorResponse(404, "No collection found"))
+  }
+
+  if (isCollection?.userId !== req.user.id) {
     return res
-      .status(404)
+      .status(403)
       .json(
-        new ErrorResponse(404, "Either collection or user is not available")
+        new ErrorResponse(
+          403,
+          "You are not authorized to delete this collection"
+        )
       )
   }
 
-  const collection = await prisma.collection.delete({
+  await prisma.collection.delete({
     where: {
       id: id,
     },

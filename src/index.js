@@ -25,7 +25,7 @@ app.use(
 )
 
 app.use("/auth", AuthRoutes)
-app.use("/", CollectionRoutes)
+app.use("/collection", CollectionRoutes)
 
 app.listen(port, () => {
   console.log(`Now listening on port ${port}`)
