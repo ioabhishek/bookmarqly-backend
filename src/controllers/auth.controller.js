@@ -188,6 +188,38 @@ export const verifyJwt = async (req, res, next) => {
   }
 }
 
+export const verifyUser = async (req, res, next) => {
+  const token =
+    req.cookies.accessToken ||
+    req.header("Authorization")?.replace("Bearer ", "")
+
+  if (token) {
+    const decodedToken = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET)
+
+    // Using id from the decoded token find user in Database
+    const user = await prisma.user.findUnique({
+      where: {
+        id: decodedToken.id,
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        username: true,
+        picture: true,
+        isEmailVerified: true,
+        loginType: true,
+      },
+    })
+
+    if (user) {
+      req.user = user
+    }
+
+    next()
+  }
+}
+
 export const refreshAccessToken = async (req, res, next) => {
   const incomingRefreshToken = req.cookies.refreshToken || req.body.refreshToken
 

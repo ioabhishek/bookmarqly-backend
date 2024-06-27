@@ -1,17 +1,21 @@
 import { Router } from "express"
 import {
-  collectionList,
   createCollection,
   deleteCollection,
+  exploreCollection,
+  myCollection,
+  singleCollection,
   updateCollection,
 } from "../controllers/collection.controller.js"
-import { verifyJwt } from "../controllers/auth.controller.js"
+import { verifyJwt, verifyUser } from "../controllers/auth.controller.js"
 
 const router = Router()
 
 router.post("/create", verifyJwt, createCollection)
 router.post("/update", verifyJwt, updateCollection)
 router.post("/delete", verifyJwt, deleteCollection)
-router.get("/explore", collectionList)
+router.get("/my", verifyJwt, myCollection)
+router.get("/explore", exploreCollection)
+router.get("/:collectionId", verifyUser, singleCollection)
 
 export default router

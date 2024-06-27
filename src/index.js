@@ -2,6 +2,7 @@ import express from "express"
 import passport from "./passport.js"
 import AuthRoutes from "./routes/auth.route.js"
 import CollectionRoutes from "./routes/collection.route.js"
+import BookmarkRoutes from "./routes/bookmark.route.js"
 import cors from "cors"
 import cookieParser from "cookie-parser"
 import bodyParser from "body-parser"
@@ -26,6 +27,7 @@ app.use(
 
 app.use("/auth", AuthRoutes)
 app.use("/collection", CollectionRoutes)
+app.use("/bookmark", BookmarkRoutes)
 
 app.listen(port, () => {
   console.log(`Now listening on port ${port}`)
