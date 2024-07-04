@@ -706,26 +706,53 @@ export const userDetails = async (req, res, next) => {
 
 export const getUser = async (req, res, next) => {
   const { username } = req.params
+  const userId = req.user.id
+  const usernameCompare = req.user.username
 
-  const findUser = await prisma.user.findUnique({
-    where: {
-      username: username,
-    },
-    select: {
-      name: true,
-      email: true,
-      username: true,
-      isEmailVerified: true,
-      picture: true,
-      loginType: true,
-    },
-  })
-
-  if (!findUser) {
-    return res.status(404).json(new ErrorResponse(404, "User does not exist"))
+  // Base select fields
+  const selectFields = {
+    name: true,
+    email: true,
+    username: true,
+    isEmailVerified: true,
+    picture: true,
+    loginType: true,
   }
 
-  return res
-    .status(200)
-    .json(new ApiResponse(200, { user: findUser }, "User fetched successfully"))
+  // Conditionally add the collection field
+  if (userId && username === usernameCompare) {
+    // User is the owner, include all collection fields
+    selectFields.collection = {}
+  } else {
+    // User is not the owner, include only public collections
+    selectFields.collection = {
+      where: {
+        isPublic: true,
+      },
+      // select: {
+      //   // Include fields relevant to non-owners
+      //   id: true,
+      //   isPublic: true,
+      // },
+    }
+  }
+
+  try {
+    const findUser = await prisma.user.findUnique({
+      where: {
+        username: username,
+      },
+      select: selectFields,
+    })
+
+    if (!findUser) {
+      return res.status(404).json(new ErrorResponse(404, "User does not exist"))
+    }
+
+    return res
+      .status(200)
+      .json(new ApiResponse(200, findUser, "User details fetched successfuly"))
+  } catch (error) {
+    next(error)
+  }
 }

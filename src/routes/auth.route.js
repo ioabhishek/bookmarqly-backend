@@ -16,6 +16,7 @@ import {
   userDetails,
   verifyEmail,
   verifyJwt,
+  verifyUser,
 } from "../controllers/auth.controller.js"
 
 const router = Router()
@@ -34,7 +35,7 @@ router.post("/forgot-password", forgotPasswordRequest)
 router.post("/reset-password", resetForgottenPassword)
 router.post("/change-password", verifyJwt, changeCurrentPassword)
 router.get("/current-user", verifyJwt, userDetails)
-router.get("/get-user/:username", getUser)
+router.get("/get-user/:username", verifyUser, getUser)
 
 export default router
 

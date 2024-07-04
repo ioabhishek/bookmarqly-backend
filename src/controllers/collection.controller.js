@@ -148,35 +148,60 @@ export const deleteCollection = async (req, res) => {
 }
 
 export const myCollection = async (req, res) => {
-  const collection = await prisma.collection.findMany({
-    where: {
-      userId: req.user.id,
-    },
-    select: {
-      id: true,
-      title: true,
-      description: true,
-      thumbnail: true,
-      isPublic: true,
-      user: {
-        select: {
-          id: true,
-          name: true,
-          username: true,
+  const { username } = req.body
+
+  if (req.user.username === username) {
+    const collection = await prisma.collection.findMany({
+      where: {
+        userId: req.user.id,
+      },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        thumbnail: true,
+        isPublic: true,
+        user: {
+          select: {
+            id: true,
+            name: true,
+            username: true,
+          },
         },
       },
-    },
-  })
-
-  return res
-    .status(201)
-    .json(
-      new ApiResponse(
-        201,
-        { collection: collection },
-        "Collection list Fetched successfully"
+    })
+    return res
+      .status(201)
+      .json(
+        new ApiResponse(201, collection, "Collection list Fetched successfully")
       )
-    )
+  } else {
+    const collection = await prisma.collection.findMany({
+      where: {
+        username: username,
+        isPublic: false,
+      },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        thumbnail: true,
+        isPublic: true,
+        user: {
+          select: {
+            id: true,
+            name: true,
+            username: true,
+          },
+        },
+      },
+    })
+    return res
+      .status(201)
+      .json(
+        new ApiResponse(201, collection, "Collection list Fetched successfully")
+      )
+  }
 }
 
 export const exploreCollection = async (req, res) => {
