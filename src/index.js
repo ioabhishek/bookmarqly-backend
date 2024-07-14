@@ -43,6 +43,10 @@ app.use("/bookmark", BookmarkRoutes)
 //   })
 // })
 
+app.use("/", function (req, res) {
+  res.status(200).json({ ping: "pong" })
+})
+
 app.listen(port, () => {
   console.log(`Now listening on port ${port}`)
 })
