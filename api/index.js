@@ -30,18 +30,18 @@ app.use("/auth", AuthRoutes)
 app.use("/collection", CollectionRoutes)
 app.use("/bookmark", BookmarkRoutes)
 
-// app.get("/fetch-og", async (req, res) => {
-//   const { url } = req.query
-//   const options = { url }
+app.get("/fetch-og", async (req, res) => {
+  const { url } = req.query
+  const options = { url }
 
-//   ogs(options).then((data) => {
-//     const { error, html, result, response } = data
-//     if (error) {
-//       return res.status(500).json({ error: "Failed to fetch OG data" })
-//     }
-//     res.json(result)
-//   })
-// })
+  ogs(options).then((data) => {
+    const { error, html, result, response } = data
+    if (error) {
+      return res.status(500).json({ error: "Failed to fetch OG data" })
+    }
+    res.json(result)
+  })
+})
 
 app.use("/", function (req, res) {
   res.status(200).json({ ping: "pong" })
