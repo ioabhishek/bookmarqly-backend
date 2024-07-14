@@ -38,14 +38,17 @@ model Collection {
   userId    String
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
-  Bookmark  Bookmark[]
+  bookmark  Bookmark[]
 }
 
 model Bookmark {
-  id    String  @id @default(cuid())
-  title String
-  url   String
-  note  String?
+  id            String  @id @default(cuid())
+  title         String?
+  url           String
+  note          String?
+  ogImage       String?
+  ogTitle       String?
+  ogDescription String?
 
   collection   Collection @relation(fields: [collectionId], references: [id])
   collectionId String

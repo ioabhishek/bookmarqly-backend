@@ -34,7 +34,7 @@ router.post("/resend-email-verification", resendEmailVerification)
 router.post("/forgot-password", forgotPasswordRequest)
 router.post("/reset-password", resetForgottenPassword)
 router.post("/change-password", verifyJwt, changeCurrentPassword)
-router.get("/current-user", verifyJwt, userDetails)
+router.post("/user", verifyJwt, userDetails)
 router.get("/get-user/:username", verifyUser, getUser)
 
 export default router

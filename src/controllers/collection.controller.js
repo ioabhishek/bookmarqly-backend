@@ -3,6 +3,7 @@ import { ApiResponse } from "../utils/ApiResponse.js"
 import { ErrorResponse } from "../utils/ErrorResponse.js"
 import {
   createCollectionSchema,
+  updateCollectionPricacySchema,
   updateCollectionSchema,
 } from "../validations.js"
 
@@ -112,6 +113,62 @@ export const updateCollection = async (req, res) => {
     )
 }
 
+export const updateCollectionPrivacy = async (req, res) => {
+  const validationResult = updateCollectionPricacySchema.safeParse(req.body)
+
+  if (!validationResult.success) {
+    const errors = validationResult.error.errors.map((err) => ({
+      path: err.path.join("."),
+      message: err.message,
+    }))
+    return res
+      .status(400)
+      .json(new ApiResponse(400, { errors }, "Validation error"))
+  }
+
+  const { isPublic, collectionId } = validationResult.data
+
+  const isCollection = await prisma.collection.findUnique({
+    where: {
+      id: collectionId,
+    },
+  })
+
+  if (!isCollection) {
+    return res.status(404).json(new ErrorResponse(404, "No Collection found"))
+  }
+
+  if (isCollection?.userId !== req.user.id) {
+    return res
+      .status(403)
+      .json(
+        new ErrorResponse(
+          403,
+          "You are not authorized to update this collection"
+        )
+      )
+  }
+
+  const collection = await prisma.collection.update({
+    where: {
+      id: collectionId,
+    },
+    data: {
+      isPublic: isPublic,
+    },
+  })
+
+  return res
+    .status(201)
+    .json(
+      new ApiResponse(
+        201,
+        { collection: collection },
+        "Collection privacy updated successfully"
+      )
+    )
+}
+
 export const deleteCollection = async (req, res) => {
   const { id } = req.body
 
@@ -135,6 +192,12 @@ export const deleteCollection = async (req, res) => {
         )
       )
   }
+
+  await prisma.bookmark.deleteMany({
+    where: {
+      collectionId: id,
+    },
+  })
 
   await prisma.collection.delete({
     where: {
@@ -256,12 +319,16 @@ export const singleCollection = async (req, res, next) => {
           username: true,
         },
       },
-      Bookmark: {
+      bookmark: {
         select: {
           id: true,
           title: true,
           url: true,
           note: true,
+          ogImage: true,
+          ogTitle: true,
+          ogDescription: true,
+          createdAt: true,
         },
       },
     },

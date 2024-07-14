@@ -698,10 +698,37 @@ export const changeCurrentPassword = async (req, res, next) => {
     .json(new ApiResponse(200, {}, "Password changed successfully"))
 }
 
-export const userDetails = async (req, res, next) => {
+export const userDetails = async (req, res) => {
+  const { isCollection } = req.body
+
+  // Base select fields
+  const selectFields = {
+    name: true,
+    email: true,
+    username: true,
+    isEmailVerified: true,
+    picture: true,
+    loginType: true,
+  }
+
+  if (isCollection) {
+    selectFields.collection = {}
+  }
+
+  const findUser = await prisma.user.findUnique({
+    where: {
+      id: req?.user?.id,
+    },
+    select: selectFields,
+  })
+
+  if (!findUser) {
+    return res.status(404).json(new ErrorResponse(404, "User does not exist"))
+  }
+
   return res
     .status(200)
-    .json(new ApiResponse(200, req.user, "Current user fetched successfully"))
+    .json(new ApiResponse(200, findUser, "Current user fetched successfully"))
 }
 
 export const getUser = async (req, res, next) => {

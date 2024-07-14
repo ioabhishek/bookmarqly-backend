@@ -7,6 +7,7 @@ import cors from "cors"
 import cookieParser from "cookie-parser"
 import bodyParser from "body-parser"
 import "dotenv/config"
+import ogs from "open-graph-scraper"
 
 const port = process.env.PORT || 4000
 const app = express()
@@ -28,6 +29,19 @@ app.use(
 app.use("/auth", AuthRoutes)
 app.use("/collection", CollectionRoutes)
 app.use("/bookmark", BookmarkRoutes)
+
+// app.get("/fetch-og", async (req, res) => {
+//   const { url } = req.query
+//   const options = { url }
+
+//   ogs(options).then((data) => {
+//     const { error, html, result, response } = data
+//     if (error) {
+//       return res.status(500).json({ error: "Failed to fetch OG data" })
+//     }
+//     res.json(result)
+//   })
+// })
 
 app.listen(port, () => {
   console.log(`Now listening on port ${port}`)

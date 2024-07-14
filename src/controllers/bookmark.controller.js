@@ -1,10 +1,11 @@
 import { z } from "zod"
+import ogs from "open-graph-scraper"
 import prisma from "../DB/db.config.js"
 import { ApiResponse } from "../utils/ApiResponse.js"
 import { ErrorResponse } from "../utils/ErrorResponse.js"
 import { createBookmarkSchema, updateBookmarkSchema } from "../validations.js"
 
-export const allBookmarks = async (req, res, next) => {
+export const allBookmarks = async (req, res) => {
   const bookmarks = await prisma.bookmark.findMany({
     where: {
       userId: req.user.id,
@@ -16,7 +17,7 @@ export const allBookmarks = async (req, res, next) => {
     .json(new ApiResponse(201, bookmarks, "Bookmarks fetched successfully"))
 }
 
-export const createBookmark = async (req, res, next) => {
+export const createBookmark = async (req, res) => {
   const validationResult = createBookmarkSchema.safeParse(req.body)
 
   if (!validationResult.success) {
@@ -43,6 +44,18 @@ export const createBookmark = async (req, res, next) => {
       .json(new ErrorResponse(404, "Please create/select a collection"))
   }
 
+  const options = { url }
+  let ogImage, ogTitle, ogDescription
+
+  try {
+    const { result } = await ogs(options)
+    ogImage = result?.ogImage[0]?.url
+    ogTitle = result?.ogTitle
+    ogDescription = result?.ogDescription
+  } catch (error) {
+    console.error("Error fetching Open Graph data:", error)
+  }
+
   const bookmark = await prisma.bookmark.create({
     data: {
       title: title,
@@ -50,21 +63,18 @@ export const createBookmark = async (req, res, next) => {
       note: note,
       collectionId: collectionId,
       userId: req.user.id,
+      ogImage: ogImage,
+      ogTitle: ogTitle,
+      ogDescription: ogDescription,
     },
   })
 
   return res
     .status(201)
-    .json(
-      new ApiResponse(
-        201,
-        { bookmark: bookmark },
-        "Bookmark created successfully"
-      )
-    )
+    .json(new ApiResponse(201, bookmark, "Bookmark created successfully"))
 }
 
-export const updateBookmark = async (req, res, next) => {
+export const updateBookmark = async (req, res) => {
   const validationResult = updateBookmarkSchema.safeParse(req.body)
 
   if (!validationResult.success) {
@@ -107,7 +117,7 @@ export const updateBookmark = async (req, res, next) => {
     )
 }
 
-export const deleteBookmark = async (req, res, next) => {
+export const deleteBookmark = async (req, res) => {
   const { bookmarkId } = req.body
 
   const bookmark = await prisma.bookmark.findUnique({
@@ -137,4 +147,21 @@ export const deleteBookmark = async (req, res, next) => {
   return res
     .status(201)
     .json(new ErrorResponse(201, "Bookmark deleted successfully"))
+}
+
+export const singleBookmark = async (req, res) => {
+  const { bookmarkId } = req.params
+  const bookmark = await prisma.bookmark.findUnique({
+    where: {
+      id: bookmarkId,
+    },
+  })
+
+  if (!bookmark) {
+    return res.status(404).json(new ErrorResponse(404, "No Bookmark found"))
+  }
+
+  return res
+    .status(201)
+    .json(new ApiResponse(201, bookmark, "Bookmark fetched successfully"))
 }
